@@ -11,7 +11,7 @@ option(PLUTO_TIMESTAMP "Build pluto with timestamp" ON)
 find_package(SoapySDR REQUIRED)
 
 set(MAIN_SOURCE_FILES
-    main.c)
+    main.c configure_sdr.c)
 
 # Добавляем исполняемый файл
 add_executable(main ${MAIN_SOURCE_FILES})
