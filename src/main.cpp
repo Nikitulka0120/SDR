@@ -1,10 +1,10 @@
 #include <SoapySDR/Device.h>
 #include <SoapySDR/Formats.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <complex.h>
-#include <string.h>
+#include <iostream>
+#include <vector>
+#include <string>
+#include <cstring>
+#include <cstdint>
 
 #include "sdr_configures.h"
 #include "TX.h"
@@ -41,47 +41,41 @@ int main(int argc, char *argv[])
     // Получение MTU, в нашем случае - размер буферов.
     size_t rx_mtu = SoapySDRDevice_getStreamMTU(Soapy_config.sdr, Soapy_config.rxStream);
     size_t tx_mtu = SoapySDRDevice_getStreamMTU(Soapy_config.sdr, Soapy_config.txStream);
-    printf("MTU - TX: %lu, RX: %lu\n", tx_mtu, rx_mtu);
+    std::cout << "MTU - TX: " << tx_mtu << ", RX: " << rx_mtu << std::endl;
 
     size_t total_samples = tx_mtu;            // Столько комплексных сэмплов отдаем в ЦАП
     size_t num_symbols = total_samples / SPS; // Число полезных символов
-    size_t num_bits  = num_symbols;            // Количество битов (по умолчанию размер для bpsk)
+    size_t num_bits = num_symbols;            // Количество битов (по умолчанию размер для bpsk)
     if (strcmp(SDR_config.mod_type, "qpsk") == 0)
     {
-        num_bits = num_symbols * 2;             // Для qpsk требуется в 2 раза больше бит
+        num_bits = num_symbols * 2; // Для qpsk требуется в 2 раза больше бит
     }
 
-    uint8_t tx_bits[num_bits];            // Буфер сырых бит
-    int16_t mod_symbols[2 * num_symbols]; // Буфер после маппера (без нулей)
-    int16_t upsampled_buff[2 * total_samples]; // Буфер после мапера забитый нулями
-    int16_t tx_buff[2 * total_samples]; // Буфер на передачу почле свертки
+    std::vector<uint8_t> tx_bits(num_bits);                 // Буфер сырых бит
+    std::vector<int16_t> mod_symbols(2 * num_symbols);      // Буфер после маппера (без нулей)
+    std::vector<int16_t> upsampled_buff(2 * total_samples); // Буфер после мапера забитый нулями
+    std::vector<int16_t> tx_buff(2 * total_samples);        // Буфер на передачу почле свертки
 
-    int16_t rx_buffer[2 * rx_mtu];  // Буфер приема
-
+    std::vector<int16_t> rx_buffer(2 * rx_mtu); // Буфер приема
 
     SoapySDRDevice_activateStream(Soapy_config.sdr, Soapy_config.rxStream, 0, 0, 0);
     SoapySDRDevice_activateStream(Soapy_config.sdr, Soapy_config.txStream, 0, 0, 0);
 
-
-    printf("Start test...\n");
+    std::cout << "Start test..." << std::endl;
     const long timeoutUs = 400000; // arbitrarily chosen (взяли из srsRAN)
 
     long long last_time = 0;
 
     // Открытие файла если режим sdr == rx
-    FILE *file = NULL;
+    FILE *file = nullptr;
     if (strcmp(SDR_config.mode, "rx") == 0)
     {
         const char *filename_Rx = "pluto1.pcm";
         file = fopen(filename_Rx, "wb");
-        if (file == NULL)
+        if (!file)
         {
-            printf("Не удалось открыть файл %s для записи\n", filename_Rx);
-            SoapySDRDevice_deactivateStream(Soapy_config.sdr, Soapy_config.rxStream, 0, 0);
-            SoapySDRDevice_deactivateStream(Soapy_config.sdr, Soapy_config.txStream, 0, 0);
-            SoapySDRDevice_closeStream(Soapy_config.sdr, Soapy_config.rxStream);
-            SoapySDRDevice_closeStream(Soapy_config.sdr, Soapy_config.txStream);
-            SoapySDRDevice_unmake(Soapy_config.sdr);
+            std::cerr << "Не удалось открыть файл pluto1.pcm для записи" << std::endl;
+            stop_streaming_and_clear(&Soapy_config);
             return EXIT_FAILURE;
         }
     }
@@ -93,7 +87,7 @@ int main(int argc, char *argv[])
     // Основной цикл, tx читает и передает, rx читает и пишет в файл
     while (1)
     {
-        void *rx_buffs[] = {rx_buffer};
+        void *rx_buffs[] = {rx_buffer.data()};
         int flags;
         long long timeNs;
 
@@ -103,11 +97,16 @@ int main(int argc, char *argv[])
             continue;
         }
 
-        printf("Buffer: %lu - Samples: %i, Flags: %i, Time: %lli, TimeDiff: %lli\n", buffers_read, sr, flags, timeNs, timeNs - last_time);
+        std::cout << "Buffer: " << buffers_read
+                  << " - Samples: " << sr
+                  << ", Flags: " << flags
+                  << ", Time: " << timeNs
+                  << ", TimeDiff: " << (timeNs - last_time)
+                  << '\n';
         // Пишем в файл ТОЛЬКО принятые RX-сэмплы на rx
-        if ((strcmp(SDR_config.mode, "rx") == 0) && file != NULL)
+        if ((strcmp(SDR_config.mode, "rx") == 0) && file != nullptr)
         {
-            fwrite(rx_buffer, 2 * (size_t)sr * sizeof(int16_t), 1, file);
+            fwrite(rx_buffer.data(), 2 * static_cast<size_t>(sr) * sizeof(int16_t), 1, file);
         }
         last_time = timeNs;
         buffers_read++;
@@ -120,40 +119,40 @@ int main(int argc, char *argv[])
                 long long tx_time = timeNs + (4 * 1000 * 1000);
 
                 // Генерируем массив случайных бит
-                generate_bits(tx_bits, num_bits);
+                generate_bits(tx_bits.data(), num_bits);
 
-                // Модулируем биты в комплексные сэмплы (BPSK или QPSK) 
+                // Модулируем биты в комплексные сэмплы (BPSK или QPSK)
                 if (strcmp(SDR_config.mod_type, "qpsk") == 0)
                 {
-                    map_qpsk(tx_bits, mod_symbols, num_symbols);
+                    map_qpsk(tx_bits.data(), mod_symbols.data(), num_symbols);
                 }
                 else if (strcmp(SDR_config.mod_type, "bpsk") == 0)
                 {
-                    map_bpsk(tx_bits, mod_symbols, num_symbols);
+                    map_bpsk(tx_bits.data(), mod_symbols.data(), num_symbols);
                 }
 
                 // Добиваем нулями
-                upsample_zeros(mod_symbols, num_symbols, upsampled_buff, SPS);
+                upsample_zeros(mod_symbols.data(), num_symbols, upsampled_buff.data(), SPS);
 
                 // Свертка
-                convolution(upsampled_buff, tx_buff, total_samples);
+                convolution(upsampled_buff.data(), tx_buff.data(), total_samples);
 
                 flags = SOAPY_SDR_HAS_TIME;
-                void *tx_buffs[] = {tx_buff};
+                void *tx_buffs[] = {tx_buff.data()};
 
                 // Отправка
                 int st = SoapySDRDevice_writeStream(Soapy_config.sdr, Soapy_config.txStream,
                                                     (const void *const *)tx_buffs,
                                                     total_samples, &flags, tx_time, timeoutUs);
-                if ((size_t)st != total_samples)
+                if (static_cast<size_t>(st) != total_samples)
                 {
-                    printf("TX Failed: %i\n", st);
+                    std::cerr << "TX Failed: " << st << std::endl;
                 }
             }
         }
     }
 
-    if (file != NULL)
+    if (file)
     {
         fclose(file);
     }

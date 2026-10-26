@@ -1,6 +1,7 @@
 #pragma once
 #define TX_AMPLITUDE 1500
 #define SPS 10
+#include <cstdint>
 
 void generate_bits(uint8_t *bits, size_t num_bits);
 void map_bpsk(const uint8_t *bits, int16_t *buffer, size_t num_symbols);
