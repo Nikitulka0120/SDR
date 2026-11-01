@@ -18,13 +18,14 @@ z = i + 1j * q
 
 print(f"Прочитано комплексных сэмплов: {len(z)}")
 
-z = z[9::DECIMATION]
+fig, axes = plt.subplots(2, 5, figsize=(15, 6), sharex=True, sharey=True)
 
-fig, ax = plt.subplots(figsize=(8, 8))
-ax.scatter(z.real, z.imag, s=4, alpha=0.35)
-ax.set_aspect("equal")
-ax.grid(True)
-ax.set_xlabel("I")
-ax.set_ylabel("Q")
-ax.set_title("pluto1.pcm")
+for k, ax in enumerate(axes.flatten()):
+    zk = z[k::DECIMATION]
+    ax.scatter(zk.real, zk.imag, s=2, alpha=0.35)
+    ax.set_aspect("equal")
+    ax.grid(True, alpha=0.5)
+    ax.set_title(f"offset = {k}", fontsize=10)
+
+plt.tight_layout()
 plt.show()
