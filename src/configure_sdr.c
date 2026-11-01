@@ -16,22 +16,22 @@ int set_params(int argc, char *argv[], SDRconfig *Config)
     if (strcasecmp(argv[1], "tx") == 0)
     {
         strcpy(Config->mode, "tx");
-        Config->rx_freq = 400e6;
-        Config->tx_freq = 200e6;
+        Config->rx_freq = 750e6;
+        Config->tx_freq = 800e6;
         Config->rate = 1e6;
-        Config->tx_gain = -40.0;
+        Config->tx_gain = 89.0;
         Config->rx_gain = 30.0;
-        strcpy(Config->uri, "usb:3.6.5");
+        strcpy(Config->uri, "usb:3.13.5");
     }
     else if (strcasecmp(argv[1], "rx") == 0)
     {
         strcpy(Config->mode, "rx");
-        Config->rx_freq = 200e6;
-        Config->tx_freq = 400e6;
+        Config->rx_freq = 800e6;
+        Config->tx_freq = 750e6;
         Config->rate = 1e6;
-        Config->tx_gain = -40.0;
+        Config->tx_gain = 89.0;
         Config->rx_gain = 30.0;
-        strcpy(Config->uri, "usb:3.7.5");
+        strcpy(Config->uri, "usb:3.12.5");
     }
     else
     {

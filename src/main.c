@@ -114,7 +114,7 @@ int main(int argc, char *argv[])
 
         if (strcmp(SDR_config.mode, "tx") == 0)
         {
-            if (buffers_read % 2 == 0)
+            if (buffers_read % 10 == 0)
             {
                 // Время передачи: на 4 мс в будущее
                 long long tx_time = timeNs + (4 * 1000 * 1000);
