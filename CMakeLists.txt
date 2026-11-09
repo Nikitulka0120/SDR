@@ -20,6 +20,7 @@ set(MAIN_SOURCE_FILES
     src/main.c
     src/configure_sdr.c
     src/transmitter.c
+    src/receiver.c
 )
 
 # Добавляем исполняемый файл

@@ -1,6 +1,6 @@
-// #define HASSDR
+// #define HAS_SDR
 
-#ifdef HASSDR
+#ifdef HAS_SDR
 #include <SoapySDR/Device.h>
 #include <SoapySDR/Formats.h>
 #endif
@@ -13,8 +13,9 @@
 
 #include "sdr_configures.h"
 #include "TX.h"
+#include "RX.h"
 
-#ifndef HASSDR
+#ifndef HAS_SDR
 #define DEFAULT_SIM_MTU 1920
 #endif
 
@@ -28,7 +29,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     };
 
-#ifdef HASSDR
+#ifdef HAS_SDR
     // настройка аргументов SoapySDR
     SoapyConfig Soapy_config;
     if (set_soapy_args(&SDR_config, &Soapy_config, "uri") != 0)
@@ -49,12 +50,13 @@ int main(int argc, char *argv[])
     };
 
     // Получение MTU, в нашем случае - размер буферов.
-    size_t rx_mtu = SoapySDRDevice_getStreamMTU(Soapy_config.sdr, Soapy_config.rxStream);
+
     size_t tx_mtu = SoapySDRDevice_getStreamMTU(Soapy_config.sdr, Soapy_config.txStream);
+    size_t rx_mtu = 2 * tx_mtu;
 #else
     printf("Запущена отладка приемника с использованием файла с семплами.\n");
-    size_t rx_mtu = DEFAULT_SIM_MTU;
     size_t tx_mtu = DEFAULT_SIM_MTU;
+    size_t rx_mtu = 2 * DEFAULT_SIM_MTU;
 #endif
 
     printf("MTU - TX: %lu, RX: %lu\n", tx_mtu, rx_mtu);
@@ -71,14 +73,16 @@ int main(int argc, char *argv[])
     int16_t mod_symbols[2 * num_symbols];      // Буфер после маппера (без нулей)
     int16_t upsampled_buff[2 * total_samples]; // Буфер после мапера забитый нулями
     int16_t tx_buff[2 * total_samples];        // Буфер на передачу почле свертки
-    int16_t rx_buffer[2 * rx_mtu];             // Буфер приема
+
+    int16_t rx_buffer[2 * rx_mtu]; // Буфер приема
+    int16_t shaped_rx_buffer[2 * rx_mtu];
 
     memset(tx_bits, 0, num_bits);
     memset(mod_symbols, 0, sizeof(int16_t) * 2 * num_symbols);
     memset(upsampled_buff, 0, sizeof(int16_t) * 2 * total_samples);
     memset(tx_buff, 0, sizeof(int16_t) * 2 * total_samples);
 
-#ifdef HASSDR
+#ifdef HAS_SDR
     SoapySDRDevice_activateStream(Soapy_config.sdr, Soapy_config.rxStream, 0, 0, 0);
     SoapySDRDevice_activateStream(Soapy_config.sdr, Soapy_config.txStream, 0, 0, 0);
 #endif
@@ -87,7 +91,8 @@ int main(int argc, char *argv[])
     const long timeoutUs = 400000; // arbitrarily chosen (взяли из srsRAN)
     long long last_time = 0;
     FILE *file = NULL;
-#ifdef HASSDR
+    FILE *out_file = NULL;
+#ifdef HAS_SDR
     // Открытие файла для записи принятых данных из ЭФИРА
     if (strcmp(SDR_config.mode, "rx") == 0)
     {
@@ -121,6 +126,16 @@ int main(int argc, char *argv[])
     const char *tx_string = "NeverGiveUpKeepGoing2k26";
     const size_t string_size = strlen(tx_string);
 
+    const char *out_filename = "filtered_rx.pcm";
+    out_file = fopen(out_filename, "wb");
+    if (out_file == NULL)
+    {
+        printf("Не удалось открыть файл %s для записи фильтрованных данных\n", out_filename);
+        if (file != NULL)
+            fclose(file);
+        return EXIT_FAILURE;
+    }
+
     // Основной цикл, tx читает и передает, rx читает и пишет в файл
     while (1)
     {
@@ -128,7 +143,7 @@ int main(int argc, char *argv[])
         int flags = 0;
         long long timeNs = 0;
 
-#ifdef HASSDR
+#ifdef HAS_SDR
         void *rx_buffs[] = {rx_buffer};
         sr = SoapySDRDevice_readStream(Soapy_config.sdr, Soapy_config.rxStream, rx_buffs, rx_mtu, &flags, &timeNs, timeoutUs);
         if (sr < 0)
@@ -164,10 +179,24 @@ int main(int argc, char *argv[])
         timeNs = last_time + 1000000;
 #endif
 
-        printf("Buffer: %lu - Samples: %i, Flags: %i, Time: %lli, TimeDiff: %lli\n", buffers_read, sr, flags, timeNs, timeNs - last_time);
+        // printf("Buffer: %lu - Samples: %i, Flags: %i, Time: %lli, TimeDiff: %lli\n", buffers_read, sr, flags, timeNs, timeNs - last_time);
         last_time = timeNs;
         buffers_read++;
-#ifdef HASSDR
+
+        matched_filter(rx_buffer, shaped_rx_buffer, (size_t)sr);
+
+        if (out_file != NULL && sr > 0)
+        {
+            fwrite(shaped_rx_buffer, 2 * sizeof(int16_t), (size_t)sr, out_file);
+        }
+
+        int start_idx = find_packet_start(shaped_rx_buffer, (size_t)sr, 1000);
+        if (start_idx >= 0)
+        {
+            printf("Найдено начало пакета: индекс %d (буфер %lu)\n", start_idx, buffers_read);
+        }
+
+#ifdef HAS_SDR
         if (strcmp(SDR_config.mode, "tx") == 0)
         {
             if (buffers_read % 10 == 0)
@@ -192,7 +221,7 @@ int main(int argc, char *argv[])
                 upsample_zeros(mod_symbols, num_symbols, upsampled_buff, SPS);
 
                 // Свертка
-                convolution(upsampled_buff, tx_buff, total_samples);
+                shaping_filter(upsampled_buff, tx_buff, total_samples);
 
                 flags = SOAPY_SDR_HAS_TIME;
                 void *tx_buffs[] = {tx_buff};
@@ -213,8 +242,12 @@ int main(int argc, char *argv[])
     {
         fclose(file);
     }
+    if (out_file != NULL)
+    {
+        fclose(out_file);
+    }
 
-#ifdef HASSDR
+#ifdef HAS_SDR
     stop_streaming_and_clear(&Soapy_config);
 #endif
     return EXIT_SUCCESS;

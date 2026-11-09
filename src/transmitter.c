@@ -5,11 +5,13 @@
 static const int16_t h[SPS] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 
 // Генератор битовой последовательности
-void generate_bits(uint8_t *bits, size_t num_bits)
+void generate_bits(uint8_t *bits, size_t string_lenght, const char *string)
 {
-    for (size_t i = 0; i < num_bits; i++)
-    {
-        bits[i] = rand() & 1; // 0 или 1
+    for (size_t i = 0; i < string_lenght; i++){
+        for (int j = 7; j >= 0; j--){
+            uint8_t bit = ((uint8_t )string[i] >> j) & 1;
+            bits[i * 8 + (7 - j)] = bit;
+        }
     }
 }
 
@@ -59,7 +61,7 @@ void upsample_zeros(const int16_t *in_symbols, size_t num_symbols, int16_t *out_
 }
 
 // свертка
-void convolution(const int16_t *in_upsampled, int16_t *out_shaped, size_t total_samples)
+void shaping_filter(const int16_t *in_upsampled, int16_t *out_shaped, size_t total_samples)
 {
     for (size_t n = 0; n < total_samples; n++)
     {
